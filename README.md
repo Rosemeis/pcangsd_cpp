@@ -5,11 +5,11 @@ Dependencies:
 * BLAS (MKL, OpenBLAS, ...)
 * LAPACK
 * OpenMP (For parallelization)
-* [Armadillo](http://arma.sourceforge.net/) (Linear algebra library)
+* [Eigen](https://eigen.tuxfamily.org/) (Linear algebra library)
 
 How to compile:
 ```
-g++ pcangsd.cpp pca.cpp reader.cpp -o pcangsd -O3 -fopenmp -lz -larmadillo
+g++ pcangsd.cpp pca.cpp reader.cpp -o pcangsd -O3 -fopenmp -lz -lopenblas -llapacke
 ```
 
 How to run (example):

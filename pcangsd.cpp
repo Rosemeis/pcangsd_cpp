@@ -1,13 +1,17 @@
+#define EIGEN_USE_BLAS
+#define EIGEN_USE_LAPACKE
+#include <Eigen/Dense>
 #include <iostream>
+#include <fstream>
 #include <string>
-#include <armadillo>
 #include <string.h>
 #include "omp.h"
-#include "reader.h"
-#include "pca.h"
+#include "reader.hpp"
+#include "pca.hpp"
+using namespace Eigen;
 
 /* PCAngsd C++ version
-Depends on BLAS, LAPACK, OpenMP and Armadillo.
+Depends on BLAS, LAPACK, OpenMP and Eigen.
 */
 int main(int argc, char* argv[]) {
     std::cout << "PCAngsd v0.1 - Experimental C++ version.\n";
@@ -49,38 +53,38 @@ int main(int argc, char* argv[]) {
     }
 
     // Define arrays
-    double* l = new double[m*n*3]; // Keeping in 1D for contiguous memory
+    double* L = new double[m*n*3]; // Keeping in 1D for contiguous memory
     double* f = new double[m];
 
     // Read data
-    readBeagle(beagle, l, m, n);
+    readBeagle(beagle, L, m, n);
     std::cout << "Parsed " << m << " sites, and " << n << " individuals.\n";
 
     // Estimate allele frequencies
-    emFrequencies(l, f, m, n, maf_iter, maf_tole);
+    emFrequencies(L, f, m, n, maf_iter, maf_tole);
 
     // Filter based on MAF
     if (maf > 0.0) {
-        m = filterArrays(l, f, m, n, maf);
+        m = filterArrays(L, f, m, n, maf);
         std::cout << m << " sites retained after filtering.\n";
     }
 
     // Initiate matrices for iterative PCA (SVD)
-    arma::mat e(m, n);
-    arma::mat p(m, n);
-    arma::mat u(m, k);
-    arma::vec s(k);
-    arma::mat v(n, k);
-    arma::mat c(n, n);
+    MatrixXd E(m, n);
+    MatrixXd P(m, n);
+    MatrixXd C(n, n);
 
     // Estimate individual allele frequencies and GRM
-    pcangsdAlgo(l, f, e, p, u, s, v, c, m, n, k, power, iter, tole);
+    pcangsdAlgo(L, f, E, P, C, m, n, k, power, iter, tole);
 
     // Save GRM
-    c.save(out + ".cov", arma::raw_ascii);
+    std::ofstream outmat(out + ".cov");
+    if (outmat.is_open()) {
+        outmat << C << "\n";
+    }
 
     // Free arrays
-    delete [] l;
+    delete [] L;
     delete [] f;
     return 0;
 }

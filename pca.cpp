@@ -1,10 +1,15 @@
+#define EIGEN_USE_BLAS
+#define EIGEN_USE_LAPACKE
 #include <iostream>
 #include <cmath>
-#include <armadillo>
+#include <random>
 #include "omp.h"
+#include <Eigen/Dense>
+#include <Eigen/SVD>
+using namespace Eigen;
 
 // Estimate allele frequencies
-void emFrequencies(double* l, double* f, int m, int n, int iter, double tole) {
+void emFrequencies(double* L, double* f, int m, int n, int iter, double tole) {
     std::cout << "\nEstimating allele frequencies.\n";
     double diff;
 
@@ -22,9 +27,9 @@ void emFrequencies(double* l, double* f, int m, int n, int iter, double tole) {
             f_prev[j] = f[j];
             double p0, p1, p2, tmp = 0.0;
             for (int i = 0; i < n; i++) {
-                p0 = l[j*3*n+3*i+0]*(1.0 - f[j])*(1.0 - f[j]);
-                p1 = l[j*3*n+3*i+1]*2*f[j]*(1.0 - f[j]);
-                p2 = l[j*3*n+3*i+2]*f[j]*f[j];
+                p0 = L[j*3*n+3*i+0]*(1.0 - f[j])*(1.0 - f[j]);
+                p1 = L[j*3*n+3*i+1]*2*f[j]*(1.0 - f[j]);
+                p2 = L[j*3*n+3*i+2]*f[j]*f[j];
                 tmp = tmp + (p1 + 2.0*p2)/(2*(p0 + p1 + p2));
             }
             f[j] = tmp/(double)n;
@@ -48,7 +53,7 @@ void emFrequencies(double* l, double* f, int m, int n, int iter, double tole) {
 }
 
 // Initiate and center E with population allele frequencies
-void initialE(double* l, double* f, arma::mat &e, int m, int n) {
+void initialE(double* l, double* f, MatrixXd &E, int m, int n) {
     #pragma omp parallel for
     for (int j = 0; j < m; j++) {
         double p0, p1, p2;
@@ -56,34 +61,34 @@ void initialE(double* l, double* f, arma::mat &e, int m, int n) {
             p0 = l[j*3*n+3*i+0]*(1.0 - f[j])*(1.0 - f[j]);
             p1 = l[j*3*n+3*i+1]*2*f[j]*(1.0 - f[j]);
             p2 = l[j*3*n+3*i+2]*f[j]*f[j];
-            e(j,i) = (p1 + 2*p2)/(p0 + p1 + p2) - 2.0*f[j];
+            E(j,i) = (p1 + 2*p2)/(p0 + p1 + p2) - 2.0*f[j];
         }
     }
 }
 
 // Center E with individual allele frequencies
-void centerE(double* l, double* f, arma::mat &e, \
-            arma::mat &p, int m, int n) {
+void centerE(double* L, double* f, MatrixXd &E, \
+            MatrixXd &P, int m, int n) {
     #pragma omp parallel for
     for (int j = 0; j < m; j++) {
         double p0, p1, p2;
         for (int i = 0; i < n; i++) {
             // Rescale individual allele frequencies
-            p(j,i) = (p(j,i) + 2.0*f[j])/2.0;
-            p(j,i) = std::fmin(std::fmax(p(j,i), 1e-4), 1.0 - (1e-4));
+            P(j,i) = (P(j,i) + 2.0*f[j])/2.0;
+            P(j,i) = std::fmin(std::fmax(P(j,i), 1e-4), 1.0 - (1e-4));
 
             // Update e
-            p0 = l[j*3*n+3*i+0]*(1.0 - p(j,i))*(1.0 - p(j,i));
-            p1 = l[j*3*n+3*i+1]*2*p(j,i)*(1.0 - p(j,i));
-            p2 = l[j*3*n+3*i+2]*p(j,i)*p(j,i);
-            e(j,i) = (p1 + 2*p2)/(p0 + p1 + p2) - 2.0*f[j];
+            p0 = L[j*3*n+3*i+0]*(1.0 - P(j,i))*(1.0 - P(j,i));
+            p1 = L[j*3*n+3*i+1]*2*P(j,i)*(1.0 - P(j,i));
+            p2 = L[j*3*n+3*i+2]*P(j,i)*P(j,i);
+            E(j,i) = (p1 + 2*p2)/(p0 + p1 + p2) - 2.0*f[j];
         }
     }
 }
 
 // Standardize E with individual allele frequencies
-void standardE(double* l, double* f, arma::mat &e, arma::mat &p, \
-                arma::vec &diag_c, int m, int n) {
+void standardE(double* L, double* f, MatrixXd &E, MatrixXd &P, \
+                VectorXd &diag_c, int m, int n) {
     #pragma omp parallel
     {
         double diag_private[n] = {0}; // Thread private array
@@ -93,16 +98,16 @@ void standardE(double* l, double* f, arma::mat &e, arma::mat &p, \
             double norm = sqrt(2.0*f[j]*(1.0 - f[j]));
             for (int i = 0; i < n; i++) {
                 // Rescale individual allele frequencies
-                p(j,i) = (p(j,i) + 2.0*f[j])/2.0;
-                p(j,i) = std::fmin(std::fmax(p(j,i), 1e-4), 1.0 - (1e-4));
+                P(j,i) = (P(j,i) + 2.0*f[j])/2.0;
+                P(j,i) = std::fmin(std::fmax(P(j,i), 1e-4), 1.0 - (1e-4));
 
                 // Update e
-                p0 = l[j*3*n+3*i+0]*(1.0 - p(j,i))*(1.0 - p(j,i));
-                p1 = l[j*3*n+3*i+1]*2*p(j,i)*(1.0 - p(j,i));
-                p2 = l[j*3*n+3*i+2]*p(j,i)*p(j,i);
+                p0 = L[j*3*n+3*i+0]*(1.0 - P(j,i))*(1.0 - P(j,i));
+                p1 = L[j*3*n+3*i+1]*2*P(j,i)*(1.0 - P(j,i));
+                p2 = L[j*3*n+3*i+2]*P(j,i)*P(j,i);
                 pSum = p0 + p1 + p2;
-                e(j,i) = (p1 + 2*p2)/pSum - 2.0*f[j];
-                e(j,i) = e(j,i)/norm;
+                E(j,i) = (p1 + 2*p2)/pSum - 2.0*f[j];
+                E(j,i) = E(j,i)/norm;
 
                 // Update diag
                 tmp = (0.0 - 2.0*f[j])*(0.0 - 2.0*f[j])*(p0/pSum);
@@ -120,61 +125,76 @@ void standardE(double* l, double* f, arma::mat &e, arma::mat &p, \
     }
 }
 
+// Generate random matrix (standard normal)
+void generateRand(MatrixXd &Omg, std::normal_distribution<double> dist, \
+                    int n, int t) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < t; j++) {
+            Omg(i,j) = dist(gen);
+        }
+    }
+}
+
 // Halko SVD
-void halkoSVD(arma::mat &e, arma::mat &u, arma::vec &s, arma::mat &v, int k, \
+void halkoSVD(MatrixXd &E, MatrixXd &U, VectorXd &s, MatrixXd &V, int k, \
                 int power, int m, int n) {
     int t = k + 10;
-    arma::mat M1 = arma::randn<arma::mat>(n, t);
-    arma::mat M2(m, t), M3(m, t), MT(t, t), B(t, n), Uhat(m, t);
-    arma::vec S(t);
-    M2 = e * M1;
+    MatrixXd Q1(n, t), Q2(m, t), R(t, t), B(t, n);
+    std::normal_distribution<double> dist(0, 1);
+    generateRand(Q1, dist, n, t);
+    Q2 = E * Q1;
+    Q1 = E.transpose() * Q2;
     for (int it = 0; it < power; it++) {
-        arma::lu(M3, MT, M2);
-        M1 = e.t() * M3;
-        M2 = e * M1;
+        HouseholderQR<MatrixXd> qr(Q1);
+        Q1 = qr.householderQ() * MatrixXd::Identity(n, t);
+        Q2 = E * Q1;
+        Q1 = E.transpose() * Q2;
     }
-    arma::qr_econ(M3, MT, M2);
-    B = M3.t() * e;
-    arma::svd_econ(MT, S, M1, B);
-    Uhat = M3 * MT;
+    HouseholderQR<MatrixXd> qr(Q2);
+    R = MatrixXd::Identity(t, m) * qr.matrixQR().triangularView<Upper>();
+    B = R.inverse().transpose() * Q1.transpose();
+    BDCSVD<MatrixXd> svd(B, ComputeThinU | ComputeThinV);
 
     // Update old arrays
-    u = Uhat.cols(0,k);
-    s = S.rows(0,k);
-    v = M1.cols(0,k);
+    Q2 = qr.householderQ() * MatrixXd::Identity(m, t);
+    U = Q2 * svd.matrixU().leftCols(k);
+    s = svd.singularValues().head(k);
+    V = svd.matrixV().leftCols(k);
 }
 
 // Iterative PCA
-void pcangsdAlgo(double* l, double* f, arma::mat &e, arma::mat &p, \
-                    arma::mat &u, arma::vec &s, arma::mat &v, arma::mat &c, \
-                    int m, int n, int k, int power, int iter, double tole) {
+void pcangsdAlgo(double* L, double* f, MatrixXd &E, MatrixXd &P, \
+                    MatrixXd &C, int m, int n, int k, int power, int iter, \
+                    double tole) {
     std::cout << "\nEstimating individual allele frequencies.\n";
     double diff;
     double flip;
-    arma::mat v_prev(k, n);
-    arma::vec c_diag(n);
+    MatrixXd U(m, k), V(n, k), V_prev(n, k);
+    VectorXd s(k), c_diag(n);
 
     // Initialize e and estimate SVD
-    initialE(l, f, e, m, n);
-    halkoSVD(e, u, s, v, k, power, m, n);
-    p = u * (diagmat(s) * v.t());
+    initialE(L, f, E, m, n);
+    halkoSVD(E, U, s, V, k, power, m, n);
+    P = U * (s.asDiagonal() * V.transpose());
     std::cout << "Individual allele frequencies estimated (1).\n";
 
     // Run iterative updates
     for (int it = 0; it < iter; it++) {
-        v_prev = v; // Previous right singular vectors
-        centerE(l, f, e, p, m, n);
-        halkoSVD(e, u, s, v, k, power, m, n);
-        p = u * (diagmat(s) * v.t());
+        V_prev = V; // Previous right singular vectors
+        centerE(L, f, E, P, m, n);
+        halkoSVD(E, U, s, V, k, power, m, n);
+        P = U * (s.asDiagonal() * V.transpose());
 
         // Calculate differences between iterations
         diff = 0.0;
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < k; j++) {
-                if (arma::sign(v(i,j)) == arma::sign(v_prev(i,j))) {
-                    diff += (v(i,j) - v_prev(i,j))*(v(i,j) - v_prev(i,j));
+                if (((V(i,j) > 0) - (V(i,j) < 0)) == ((V_prev(i,j) > 0) - (V_prev(i,j) < 0))) {
+                    diff += (V(i,j) - V_prev(i,j))*(V(i,j) - V_prev(i,j));
                 } else {
-                    diff += (v(i,j) + v_prev(i,j))*(v(i,j) + v_prev(i,j));
+                    diff += (V(i,j) + V_prev(i,j))*(V(i,j) + V_prev(i,j));
                 }
             }
         }
@@ -192,8 +212,8 @@ void pcangsdAlgo(double* l, double* f, arma::mat &e, arma::mat &p, \
     }
     // Estimate GRM
     std::cout << "Computing GRM.\n";
-    standardE(l, f, e, p, c_diag, m, n);
-    c = e.t() * e;
-    c /= (double)m;
-    c.diag() = c_diag/(double)m;
+    standardE(L, f, E, P, c_diag, m, n);
+    C = E.transpose() * E;
+    C.array() /= (double)m;
+    C.diagonal() = c_diag.array()/(double)m;
 }
