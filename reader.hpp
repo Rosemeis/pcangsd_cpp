@@ -1,2 +1,7 @@
-void readBeagle(const char* beagle, double* L, int m, int n);
-int filterArrays(double* L, double *f, int m, int n, double tole);
+#ifndef READER_H
+#define READER_H
+
+void readBeagle(std::vector<char*> tmp, float* L, int m, int n);
+int filterArrays(float* L, float *f, int m, int n, double tole);
+
+#endif

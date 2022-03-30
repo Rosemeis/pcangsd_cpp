@@ -1,20 +1,20 @@
 #define EIGEN_USE_BLAS
 #define EIGEN_USE_LAPACKE
+#include <Eigen/Dense>
+#include <Eigen/SVD>
 #include <iostream>
 #include <cmath>
 #include <random>
 #include "omp.h"
-#include <Eigen/Dense>
-#include <Eigen/SVD>
 using namespace Eigen;
 
 // Estimate allele frequencies
-void emFrequencies(double* L, double* f, int m, int n, int iter, double tole) {
+void emFrequencies(float* L, float* f, int m, int n, int iter, double tole) {
     std::cout << "\nEstimating allele frequencies.\n";
     double diff;
 
     // Initialize temp array as well as freq array
-    double* f_prev = new double[m];
+    float* f_prev = new float[m];
     for (int j = 0; j < m; j++) {
         f[j] = 0.25;
     }
@@ -53,22 +53,21 @@ void emFrequencies(double* L, double* f, int m, int n, int iter, double tole) {
 }
 
 // Initiate and center E with population allele frequencies
-void initialE(double* l, double* f, MatrixXd &E, int m, int n) {
+void initialE(float* L, float* f, MatrixXf &E, int m, int n) {
     #pragma omp parallel for
     for (int j = 0; j < m; j++) {
         double p0, p1, p2;
         for (int i = 0; i < n; i++) {
-            p0 = l[j*3*n+3*i+0]*(1.0 - f[j])*(1.0 - f[j]);
-            p1 = l[j*3*n+3*i+1]*2*f[j]*(1.0 - f[j]);
-            p2 = l[j*3*n+3*i+2]*f[j]*f[j];
+            p0 = L[j*3*n+3*i+0]*(1.0 - f[j])*(1.0 - f[j]);
+            p1 = L[j*3*n+3*i+1]*2*f[j]*(1.0 - f[j]);
+            p2 = L[j*3*n+3*i+2]*f[j]*f[j];
             E(j,i) = (p1 + 2*p2)/(p0 + p1 + p2) - 2.0*f[j];
         }
     }
 }
 
 // Center E with individual allele frequencies
-void centerE(double* L, double* f, MatrixXd &E, \
-            MatrixXd &P, int m, int n) {
+void centerE(float* L, float* f, MatrixXf &E, MatrixXf &P, int m, int n) {
     #pragma omp parallel for
     for (int j = 0; j < m; j++) {
         double p0, p1, p2;
@@ -87,46 +86,40 @@ void centerE(double* L, double* f, MatrixXd &E, \
 }
 
 // Standardize E with individual allele frequencies
-void standardE(double* L, double* f, MatrixXd &E, MatrixXd &P, \
-                VectorXd &diag_c, int m, int n) {
-    #pragma omp parallel
-    {
-        double diag_private[n] = {0}; // Thread private array
-        #pragma omp for
-        for (int j = 0; j < m; j++) {
-            double p0, p1, p2, pSum, tmp;
-            double norm = sqrt(2.0*f[j]*(1.0 - f[j]));
-            for (int i = 0; i < n; i++) {
-                // Rescale individual allele frequencies
-                P(j,i) = (P(j,i) + 2.0*f[j])/2.0;
-                P(j,i) = std::fmin(std::fmax(P(j,i), 1e-4), 1.0 - (1e-4));
+void standardE(float* L, float* f, MatrixXf &E, MatrixXf &P, \
+                VectorXf &diag_c, int m, int n) {
+	double diag_private[n] = {0};
+    #pragma omp parallel for reduction(+:diag_private)
+    for (int j = 0; j < m; j++) {
+        double p0, p1, p2, pSum, tmp;
+        double norm = sqrt(2.0*f[j]*(1.0 - f[j]));
+        for (int i = 0; i < n; i++) {
+            // Rescale individual allele frequencies
+            P(j,i) = (P(j,i) + 2.0*f[j])/2.0;
+            P(j,i) = std::fmin(std::fmax(P(j,i), 1e-4), 1.0 - (1e-4));
 
-                // Update e
-                p0 = L[j*3*n+3*i+0]*(1.0 - P(j,i))*(1.0 - P(j,i));
-                p1 = L[j*3*n+3*i+1]*2*P(j,i)*(1.0 - P(j,i));
-                p2 = L[j*3*n+3*i+2]*P(j,i)*P(j,i);
-                pSum = p0 + p1 + p2;
-                E(j,i) = (p1 + 2*p2)/pSum - 2.0*f[j];
-                E(j,i) = E(j,i)/norm;
+            // Update e
+            p0 = L[j*3*n+3*i+0]*(1.0 - P(j,i))*(1.0 - P(j,i));
+            p1 = L[j*3*n+3*i+1]*2*P(j,i)*(1.0 - P(j,i));
+            p2 = L[j*3*n+3*i+2]*P(j,i)*P(j,i);
+            pSum = p0 + p1 + p2;
+            E(j,i) = (p1 + 2*p2)/pSum - 2.0*f[j];
+            E(j,i) = E(j,i)/norm;
 
-                // Update diag
-                tmp = (0.0 - 2.0*f[j])*(0.0 - 2.0*f[j])*(p0/pSum);
-                tmp = tmp + (1.0 - 2.0*f[j])*(1.0 - 2.0*f[j])*(p1/pSum);
-                tmp = tmp + (2.0 - 2.0*f[j])*(2.0 - 2.0*f[j])*(p2/pSum);
-                diag_private[i] += tmp/(2.0*f[j]*(1.0 - f[j]));
-            }
-        }
-        #pragma omp critical
-        {
-            for (int i = 0; i < n; i++) {
-                diag_c[i] += diag_private[i]; // Sum arrays for threads
-            }
+            // Update diag
+            tmp = (0.0 - 2.0*f[j])*(0.0 - 2.0*f[j])*(p0/pSum);
+            tmp = tmp + (1.0 - 2.0*f[j])*(1.0 - 2.0*f[j])*(p1/pSum);
+            tmp = tmp + (2.0 - 2.0*f[j])*(2.0 - 2.0*f[j])*(p2/pSum);
+            diag_private[i] += tmp/(2.0*f[j]*(1.0 - f[j]));
         }
     }
+	for (int i = 0; i < n; i++) {
+		diag_c[i] = diag_private[i];
+	}
 }
 
 // Generate random matrix (standard normal)
-void generateRand(MatrixXd &Omg, std::normal_distribution<double> dist, \
+void generateRand(MatrixXf &Omg, std::normal_distribution<double> dist, \
                     int n, int t) {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -137,55 +130,54 @@ void generateRand(MatrixXd &Omg, std::normal_distribution<double> dist, \
     }
 }
 
-// Halko SVD
-void halkoSVD(MatrixXd &E, MatrixXd &U, VectorXd &s, MatrixXd &V, int k, \
+// Halko SVD - PCAone variant
+void halkoSVD(MatrixXf &E, MatrixXf &U, VectorXf &s, MatrixXf &V, int k, \
                 int power, int m, int n) {
     int t = k + 10;
-    MatrixXd Q1(n, t), Q2(m, t), R(t, t), B(t, n);
+    MatrixXf Omg(n, t), G(m, t), H(n, t), R(t, t), B(n, t);
     std::normal_distribution<double> dist(0, 1);
-    generateRand(Q1, dist, n, t);
-    Q2 = E * Q1;
-    Q1 = E.transpose() * Q2;
-    for (int it = 0; it < power; it++) {
-        HouseholderQR<MatrixXd> qr(Q1);
-        Q1 = qr.householderQ() * MatrixXd::Identity(n, t);
-        Q2 = E * Q1;
-        Q1 = E.transpose() * Q2;
-    }
-    HouseholderQR<MatrixXd> qr(Q2);
-    R = MatrixXd::Identity(t, m) * qr.matrixQR().triangularView<Upper>();
-    B = R.inverse().transpose() * Q1.transpose();
-    BDCSVD<MatrixXd> svd(B, ComputeThinU | ComputeThinV);
+    generateRand(Omg, dist, n, t); // Standard normal matrix
 
-    // Update old arrays
-    Q2 = qr.householderQ() * MatrixXd::Identity(m, t);
-    U = Q2 * svd.matrixU().leftCols(k);
+	// Power iterations
+    for (int it = 0; it < power; it++) {
+		if (it > 0) {
+			HouseholderQR<MatrixXf> qr(H);
+			Omg.noalias() = qr.householderQ() * MatrixXf::Identity(n, t);
+		}
+		G.noalias() = E * Omg;
+		H.noalias() = E.transpose() * G;
+    }
+    HouseholderQR<MatrixXf> qr(G);
+    R.noalias() = MatrixXf::Identity(t, m) * qr.matrixQR().triangularView<Upper>();
+    B.noalias() = R.transpose().householderQr().solve(H.transpose());
+    BDCSVD<MatrixXf> svd(B, ComputeThinU | ComputeThinV);
+    G.noalias() = qr.householderQ() * MatrixXf::Identity(m, t);
+    U.noalias() = G * svd.matrixU().leftCols(k);
     s = svd.singularValues().head(k);
     V = svd.matrixV().leftCols(k);
 }
 
 // Iterative PCA
-void pcangsdAlgo(double* L, double* f, MatrixXd &E, MatrixXd &P, \
-                    MatrixXd &C, int m, int n, int k, int power, int iter, \
-                    double tole) {
-    std::cout << "\nEstimating individual allele frequencies.\n";
+void pcangsdAlgo(float* L, float* f, MatrixXf &P, MatrixXf &C, \
+					int m, int n, int k, int power, int iter, double tole) {
+    std::cout << "\nEstimating individual allele frequencies using " << k << " eigenvectors.\n";
     double diff;
-    double flip;
-    MatrixXd U(m, k), V(n, k), V_prev(n, k);
-    VectorXd s(k), c_diag(n);
+    MatrixXf E(m, n), U(m, k), V(n, k), V_prev(n, k);
+    VectorXf s(k);
+	VectorXf c_diag = VectorXf::Zero(n);
 
     // Initialize e and estimate SVD
     initialE(L, f, E, m, n);
     halkoSVD(E, U, s, V, k, power, m, n);
-    P = U * (s.asDiagonal() * V.transpose());
+    P.noalias() = U * (s.asDiagonal() * V.transpose());
     std::cout << "Individual allele frequencies estimated (1).\n";
 
     // Run iterative updates
-    for (int it = 0; it < iter; it++) {
+    for (int it = 0; it < iter-1; it++) {
         V_prev = V; // Previous right singular vectors
         centerE(L, f, E, P, m, n);
         halkoSVD(E, U, s, V, k, power, m, n);
-        P = U * (s.asDiagonal() * V.transpose());
+        P.noalias() = U * (s.asDiagonal() * V.transpose());
 
         // Calculate differences between iterations
         diff = 0.0;
@@ -206,7 +198,7 @@ void pcangsdAlgo(double* L, double* f, MatrixXd &E, MatrixXd &P, \
         if (diff < tole) {
             std::cout << "PCAngsd converged.\n";
             break;
-        } else if (it == (iter-1)) {
+        } else if (it == (iter-2)) {
             std::cout << "PCAngsd did not converge.\n";
         }
     }

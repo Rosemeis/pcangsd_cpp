@@ -1,49 +1,27 @@
 #include <iostream>
+#include <vector>
 #include <string.h>
 #include <zlib.h>
 
-// Read Beagle file (inspired by ANGSD)
-void readBeagle(const char* beagle, double* L, int m, int n) {
-    std::cout << "Parsing Beagle file.\n";
-    const char* delims = "\t \n";
+// Read Beagle file into array from vector (inspired by ANGSD)
+void readBeagle(std::vector<char*> tmp, float* L, int m, int n) {
+	int c = 3*n;
+	const char* delims = "\t \n";
 
-    // Initiate file pointer
-    gzFile fp = gzopen(beagle, "r");
-    char buf[100000];
-
-    // Verify number of individuals specified - first line
-    gzgets(fp, buf, 100000);
-    strtok(buf, delims);
-    int c = 1;
-    while (strtok(NULL, delims))  {
-        c++;
-    }
-    c -= 3;
-    if (n != c/3) {
-        std::cerr << "\nNumber of specified individuals does not match!\n";
-        exit(-1);
-    }
-    // Read gzipped file, line by line
-    int j = 0;
-    while (gzgets(fp, buf, 100000)) {
-        strtok(buf, delims); // id
+    // Read vector file (line by line)
+    for (int j = 0; j < m; j++) {
+        strtok(tmp[j], delims); // id
         strtok(NULL, delims); // major
         strtok(NULL, delims); // minor
         for (int i = 0; i < c; i++) {
             L[j*c+i] = atof(strtok(NULL, delims));
         }
-        j++;
-    }
-    // Verify number of sites specified
-    if (m != j) {
-        std::cerr << "\nNumber of specified sites does not match!\n";
-        exit(-1);
-    }
-    gzclose(fp);
+		free(tmp[j]);
+	}
 }
 
 // Filter arrays (fake-shrinking)
-int filterArrays(double* L, double *f, int m, int n, double tole) {
+int filterArrays(float* L, float *f, int m, int n, double tole) {
     std::cout << "Filtering arrays based on MAF threshold: " << tole << ".\n";
     int c = 0;
     for (int j = 0; j < m; j++) {

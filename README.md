@@ -4,15 +4,19 @@
 Dependencies:
 * BLAS (MKL, OpenBLAS, ...)
 * LAPACK
-* OpenMP (For parallelization)
 * [Eigen](https://eigen.tuxfamily.org/) (Linear algebra library)
+
+Easy install dependencies on a Linux system (OpenBLAS example):
+```
+sudo apt install libopenblas-dev liblapacke-dev libeigen3-dev
+```
 
 How to compile:
 ```
-g++ pcangsd.cpp pca.cpp reader.cpp -o pcangsd -O3 -fopenmp -lz -lopenblas -llapacke
+g++ pcangsd.cpp pca.cpp reader.cpp shared.cpp -o pcangsd -O3 -fopenmp -lz -lopenblas -llapacke
 ```
 
 How to run (example):
 ```
-./pcangsd -beagle input.gz -m 50000 -n 100 -e 2 -out test
+./pcangsd -b input.gz -e 2 -o test
 ```

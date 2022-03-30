@@ -1,12 +1,16 @@
-void emFrequencies(double* L, double* f, int m, int n, int iter = 200, \
-                    double tole = 1e-4);
-void initialE(double* L, double* f, Eigen::MatrixXd &E, int m, int n);
-void centerE(double* L, double* f, Eigen::MatrixXd &E, \
-                Eigen::MatrixXd &P, int m, int n);
-void standardE(double* L, double* f, Eigen::MatrixXd &E, Eigen::MatrixXd &P, \
-                Eigen::VectorXd &c_diag, int m, int n);
-void halkoSVD(Eigen::MatrixXd &E, Eigen::MatrixXd &U, Eigen::VectorXd &s, \
-                Eigen::MatrixXd &V, int k, int m, int n);
-void pcangsdAlgo(double* L, double* f, Eigen::MatrixXd &E, Eigen::MatrixXd &P, \
-                    Eigen::MatrixXd &C, int m, int n, int k, int power = 7, \
-                    int iter = 100, double tole = 1e-5);
+#ifndef PCA_H
+#define PCA_H
+#include <Eigen/Dense>
+
+void emFrequencies(float* L, float* f, int m, int n, int iter, double tole);
+void initialE(float* L, float* f, Eigen::MatrixXf &E, int m, int n);
+void centerE(float* L, float* f, Eigen::MatrixXf &E, Eigen::MatrixXf &P, \
+				int m, int n);
+void standardE(float* L, float* f, Eigen::MatrixXf &E, Eigen::MatrixXf &P, \
+				Eigen::VectorXf &c_diag, int m, int n);
+void halkoSVD(Eigen::MatrixXf &E, Eigen::MatrixXf &U, Eigen::VectorXf &s, \
+				Eigen::MatrixXf &V, int k, int power, int m, int n);
+void pcangsdAlgo(float* L, float* f, Eigen::MatrixXf &P, Eigen::MatrixXf &C, \
+				int m, int n, int k, int power, int iter, double tole);
+
+#endif
