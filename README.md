@@ -8,7 +8,7 @@ Dependencies:
 
 Easy install dependencies on a Linux system (OpenBLAS example):
 ```
-sudo apt install libopenblas-dev liblapacke-dev libeigen3-dev
+sudo apt install libopenblas-dev liblapacke-dev
 ```
 
 How to compile:
